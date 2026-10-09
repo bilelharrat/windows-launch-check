@@ -10,7 +10,7 @@ EXE = Path(sys.argv[1]); OUT = Path("out"); OUT.mkdir(exist_ok=True)
 VIDEO = Path("video"); PORT = 9333
 SCENES = [
     ("Find the three most cited papers on sleep and memory since 2015.", 150),
-    ("Look through my camera and read me this letter.", 150),
+    ("Look through my camera and read me this parking notice.", 150),
 ]
 timeline = []
 t0 = None
