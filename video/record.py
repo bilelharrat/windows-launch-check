@@ -65,36 +65,50 @@ for _ in range(240):
 if not page: print("the page never came"); rec.communicate(b"q"); sys.exit(1)
 note("ready", "the page is up")
 
-# the window over the whole display: no frame (Windows), then the browser sizes it to the screen
+# the window over the whole display: the app's biggest visible window (found by its process), no frame, screen size
 try:
     import ctypes
+    from ctypes import wintypes
     u = ctypes.windll.user32
-    h = 0
-    for _ in range(20):
-        h = u.FindWindowW(None, "J.A.R.V.I.S. Daredevil") or u.FindWindowW(None, "Jarvis")
-        if h: break
-        time.sleep(0.5)
     sw, sh = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+    class R(ctypes.Structure): _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
+    def rect(h): r = R(); u.GetWindowRect(h, ctypes.byref(r)); return (r.l, r.t, r.r, r.b)
+    def windows():
+        found = []
+        def each(h, _):
+            pid = wintypes.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            if pid.value == app.pid and u.IsWindowVisible(h):
+                l, t, r, b = rect(h); found.append(((r - l) * (b - t), h))
+            return True
+        u.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)(each), 0)
+        return sorted(found, reverse=True)
+    h = 0
+    for _ in range(30):
+        ws_ = windows()
+        if ws_: h = ws_[0][1]; break
+        time.sleep(0.5)
+    print("window", h, "before", rect(h) if h else None, "screen", sw, sh)
+    u.ShowWindow(h, 1)
     u.SetWindowLongW(h, -16, 0x80000000 | 0x10000000)
     u.SetWindowPos(h, -1, 0, 0, sw, sh, 0x0020 | 0x0040)
-    ver = json.load(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/version", timeout=3))
-    br = websocket.create_connection(ver["webSocketDebuggerUrl"], timeout=10, suppress_origin=True)
-    tid = [t for t in targets() if t.get("type") == "page" and t.get("url", "").startswith("http://127.0.0.1")][0]["id"]
-    w = browser_call(br, 1, "Browser.getWindowForTarget", targetId=tid)["result"]["windowId"]
-    print("size:", browser_call(br, 2, "Browser.setWindowBounds", windowId=w, bounds={"windowState": "normal"}))
-    print("size:", browser_call(br, 3, "Browser.setWindowBounds", windowId=w, bounds={"left": 0, "top": 0, "width": sw, "height": sh}))
+    time.sleep(1.0)
     u.SetWindowPos(h, -1, 0, 0, sw, sh, 0x0020 | 0x0040)
-    class R(ctypes.Structure): _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
-    r = R(); u.GetWindowRect(h, ctypes.byref(r)); print("window rect:", r.l, r.t, r.r, r.b, "screen", sw, sh)
-    timeline.append({"t": 0, "kind": "window", "text": f"{r.l},{r.t},{r.r},{r.b}"})
-except Exception as e: print("full screen:", e)
+    time.sleep(0.5)
+    print("window rect:", rect(h), "page", page.js("[innerWidth, innerHeight]"))
+    timeline.append({"t": 0, "kind": "window", "text": ",".join(map(str, rect(h)))})
+except Exception as e: print("full screen:", repr(e))
 
 # Claude, the demo mailbox, and spoken punctuation, the way the app's own settings give them (nothing on screen)
 page.js(f"send({{type: 'signin_key', key: {json.dumps(os.environ.get('ANTHROPIC_API_KEY', ''))}}}); true")
+page.js("window.__mail = []; window.jarvisFeatures.on('mail_check', (ev) => window.__mail.push(ev)); window.jarvisFeatures.on('mail_accounts', (ev) => window.__mail.push({accounts: (ev.accounts || []).length})); true")
 page.js("send({type: 'mail_save', address: %s, password: %s, name: 'Sam Rivera', imap_host: '127.0.0.1', imap_port: %d, "
         "imap_security: 'none', smtp_host: '127.0.0.1', smtp_port: %d, smtp_security: 'none'}); true" % (json.dumps(ME), json.dumps(PASSWORD), mail.imap_port, mail.smtp_port))
 page.js("send({type: 'feature_prefs', changes: {a11y_dictate_punct: 'spoken'}}); true")
-time.sleep(9)
+for _ in range(30):
+    got = page.js("JSON.stringify(window.__mail)") or "[]"
+    if '"saved":true' in got or '"ok":false' in got: break
+    time.sleep(1)
+print("mail:", got[:600], "logins:", getattr(mail.store, "logins", "?"), flush=True)
 for _ in range(3): page.key("Escape", "Escape", 27); time.sleep(0.4)   # (the first-run setup)
 time.sleep(1.5)
 
