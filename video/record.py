@@ -65,6 +65,20 @@ try:
     w = browser_call(br, 1, "Browser.getWindowForTarget", targetId=tid)["result"]["windowId"]
     print("maximize:", browser_call(br, 2, "Browser.setWindowBounds", windowId=w, bounds={"windowState": "fullscreen"}))
 except Exception as e: print("maximize:", e)
+# full screen through Windows itself: no frame, over the taskbar, the whole display
+try:
+    import ctypes
+    u = ctypes.windll.user32
+    h = 0
+    for _ in range(20):
+        h = u.FindWindowW(None, "J.A.R.V.I.S. Daredevil") or u.FindWindowW(None, "Jarvis")
+        if h: break
+        time.sleep(0.5)
+    sw, sh = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+    u.SetWindowLongW(h, -16, 0x80000000 | 0x10000000)  # WS_POPUP | WS_VISIBLE
+    u.SetWindowPos(h, -1, 0, 0, sw, sh, 0x0020 | 0x0040)  # topmost, frame changed, shown
+    print("full screen:", h, sw, sh)
+except Exception as e: print("full screen:", e)
 time.sleep(3)
 # Claude: the owner's key, given the way the app's own setup gives it (never shown on screen)
 key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -81,15 +95,19 @@ for request, limit in SCENES:
     for ch in request:
         page.call("Input.insertText", text=ch); time.sleep(0.045)
     time.sleep(0.6); page.key("Enter", "Enter", 13, "\r")
-    started, last = time.time(), time.time(); said_any = False
+    started = time.time(); prev = ""; changed = time.time(); first = None
+    before = page.js("(document.getElementById('reply') || {}).innerText || ''") or ""
     while time.time() - started < limit:
-        spoken = page.js("window.jarvisAccessibility ? window.jarvisAccessibility.state().spoken : []") or []
-        for s in spoken[seen:]:
-            note("jarvis", s); last = time.time(); said_any = True
-        seen = len(spoken)
-        busy = page.js("document.body.dataset.state || ''")
-        if said_any and busy == "idle" and time.time() - last > 6: break
+        text = page.js("(document.getElementById('reply') || {}).innerText || ''") or ""
+        state = page.js("document.body.dataset.state || ''")
+        if text and text != before and text != prev:
+            prev, changed = text, time.time()
+            if first is None: first = now()
+        if prev and state == "idle" and time.time() - changed > 6 and time.time() - started > 15: break
         time.sleep(0.5)
+    if prev:
+        timeline.append({"t": round(first, 2), "kind": "jarvis", "text": " ".join(prev.split())})
+        print(f"{first:6.1f}s jarvis: {prev[:300]}", flush=True)
     time.sleep(3)
 
 time.sleep(2); total = now()
