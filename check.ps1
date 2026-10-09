@@ -147,6 +147,12 @@ if (-not $exe) {
 }
 $dir = $exe.DirectoryName
 Note "installed: $($exe.FullName)"
+try {
+  $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe.FullName)
+  $icon.ToBitmap().Save((Join-Path $Out 'program-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+  $ver = (Get-Item $exe.FullName).VersionInfo
+  Note "the program's own name and icon: '$($ver.FileDescription)' version $($ver.ProductVersion), by '$($ver.CompanyName)'"
+} catch { Note "the program's icon could not be read: $($_.Exception.Message)" }
 $files = Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue
 Note "files installed: $($files.Count), $([math]::Round(($files | Measure-Object Length -Sum).Sum / 1MB)) MB"
 Get-ChildItem $userHome\Desktop, "$userHome\AppData\Roaming\Microsoft\Windows\Start Menu\Programs" -Filter *.lnk -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Note "shortcut: $($_.FullName)" }
