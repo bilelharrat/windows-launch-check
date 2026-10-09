@@ -63,7 +63,8 @@ try:
     br = websocket.create_connection(ver["webSocketDebuggerUrl"], timeout=10, suppress_origin=True)
     tid = [t for t in targets() if t.get("type") == "page" and t.get("url", "").startswith("http://127.0.0.1")][0]["id"]
     w = browser_call(br, 1, "Browser.getWindowForTarget", targetId=tid)["result"]["windowId"]
-    print("maximize:", browser_call(br, 2, "Browser.setWindowBounds", windowId=w, bounds={"windowState": "fullscreen"}))
+    print("normal:", browser_call(br, 2, "Browser.setWindowBounds", windowId=w, bounds={"windowState": "normal"}))
+    print("size:", browser_call(br, 3, "Browser.setWindowBounds", windowId=w, bounds={"left": 0, "top": 0, "width": 1920, "height": 1080}))
 except Exception as e: print("maximize:", e)
 # full screen through Windows itself: no frame, over the taskbar, the whole display
 try:
@@ -77,7 +78,13 @@ try:
     sw, sh = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
     u.SetWindowLongW(h, -16, 0x80000000 | 0x10000000)  # WS_POPUP | WS_VISIBLE
     u.SetWindowPos(h, -1, 0, 0, sw, sh, 0x0020 | 0x0040)  # topmost, frame changed, shown
+    class R(ctypes.Structure): _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
+    r = R(); u.GetWindowRect(h, ctypes.byref(r)); print("window rect:", r.l, r.t, r.r, r.b)
     print("full screen:", h, sw, sh)
+    try:
+        print("size again:", browser_call(br, 4, "Browser.setWindowBounds", windowId=w, bounds={"left": 0, "top": 0, "width": sw, "height": sh}))
+        u.GetWindowRect(h, ctypes.byref(r)); print("window rect now:", r.l, r.t, r.r, r.b)
+    except Exception as e: print("size again:", e)
 except Exception as e: print("full screen:", e)
 time.sleep(3)
 # Claude: the owner's key, given the way the app's own setup gives it (never shown on screen)
