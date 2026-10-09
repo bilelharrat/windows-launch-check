@@ -1,0 +1,59 @@
+name: Record the video
+
+# Records J.A.R.V.I.S. Daredevil on a clean Windows machine for askeden.com (video/record.py).
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "The installer's address"
+        required: true
+      exe:
+        description: "The installed program's file name"
+        default: "J.A.R.V.I.S. Daredevil.exe"
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: A full-HD screen
+        shell: powershell
+        run: |
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { Write-Host "resolution: $($_.Exception.Message)" }
+          Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      - name: Tools
+        shell: powershell
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress | Out-Null }
+          ffmpeg -version | Select-Object -First 1
+          python -m pip install --quiet websocket-client
+      - name: Install
+        shell: powershell
+        env:
+          IN_URL: ${{ inputs.url }}
+        run: |
+          curl.exe -L --fail -s -o Setup.exe $env:IN_URL
+          $p = Start-Process .\Setup.exe -ArgumentList '/S' -PassThru; $p.WaitForExit(600000) | Out-Null
+          Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter *.exe | Select-Object FullName
+      - name: Record
+        shell: powershell
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IN_EXE: ${{ inputs.exe }}
+        run: |
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter $env:IN_EXE | Select-Object -First 1
+          $env:PATH = "$env:ChocolateyInstall\bin;$env:PATH"
+          python video/record.py $exe.FullName
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: video-${{ github.run_id }}
+          path: |
+            out/final.mp4
+            out/raw.mp4
+            out/captions.vtt
+            out/timeline.json
