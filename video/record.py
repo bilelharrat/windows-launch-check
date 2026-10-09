@@ -88,19 +88,26 @@ try:
         if ws_: h = ws_[0][1]; break
         time.sleep(0.5)
     print("window", h, "before", rect(h) if h else None, "screen", sw, sh)
+    u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    u.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+    u.SetWindowLongPtrW.restype = ctypes.c_ssize_t
     u.ShowWindow(h, 1)
-    u.SetWindowLongW(h, -16, 0x80000000 | 0x10000000)
-    u.SetWindowPos(h, -1, 0, 0, sw, sh, 0x0020 | 0x0040)
-    time.sleep(1.0)
-    u.SetWindowPos(h, -1, 0, 0, sw, sh, 0x0020 | 0x0040)
+    print("style", u.SetWindowLongPtrW(h, -16, 0x10000000), ctypes.GetLastError())   # WS_VISIBLE only: no frame
+    for _ in range(2):
+        print("pos", u.SetWindowPos(h, None, 0, 0, sw, sh, 0x0020 | 0x0040 | 0x0004), ctypes.GetLastError())
+        time.sleep(1.0)
     time.sleep(0.5)
     print("window rect:", rect(h), "page", page.js("[innerWidth, innerHeight]"))
     timeline.append({"t": 0, "kind": "window", "text": ",".join(map(str, rect(h)))})
 except Exception as e: print("full screen:", repr(e))
 
+page.js("window.__mail = []; window.jarvisFeatures.on('mail_check', (ev) => window.__mail.push(ev)); window.jarvisFeatures.on('mail_accounts', (ev) => window.__mail.push({accounts: (ev.accounts || []).length})); true")
+for i in range(240):   # the app's own connection up and answering (a command sent before is lost)
+    if page.js("send({type: 'mail_status'}) && true") and '"accounts"' in (page.js("JSON.stringify(window.__mail)") or ""): break
+    time.sleep(1)
+print("connected after", i, "s", flush=True)
 # Claude, the demo mailbox, and spoken punctuation, the way the app's own settings give them (nothing on screen)
 page.js(f"send({{type: 'signin_key', key: {json.dumps(os.environ.get('ANTHROPIC_API_KEY', ''))}}}); true")
-page.js("window.__mail = []; window.jarvisFeatures.on('mail_check', (ev) => window.__mail.push(ev)); window.jarvisFeatures.on('mail_accounts', (ev) => window.__mail.push({accounts: (ev.accounts || []).length})); true")
 page.js("send({type: 'mail_save', address: %s, password: %s, name: 'Sam Rivera', imap_host: '127.0.0.1', imap_port: %d, "
         "imap_security: 'none', smtp_host: '127.0.0.1', smtp_port: %d, smtp_security: 'none'}); true" % (json.dumps(ME), json.dumps(PASSWORD), mail.imap_port, mail.smtp_port))
 page.js("send({type: 'feature_prefs', changes: {a11y_dictate_punct: 'spoken'}}); true")
