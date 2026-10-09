@@ -63,7 +63,7 @@ try:
     br = websocket.create_connection(ver["webSocketDebuggerUrl"], timeout=10, suppress_origin=True)
     tid = [t for t in targets() if t.get("type") == "page" and t.get("url", "").startswith("http://127.0.0.1")][0]["id"]
     w = browser_call(br, 1, "Browser.getWindowForTarget", targetId=tid)["result"]["windowId"]
-    print("maximize:", browser_call(br, 2, "Browser.setWindowBounds", windowId=w, bounds={"windowState": "maximized"}))
+    print("maximize:", browser_call(br, 2, "Browser.setWindowBounds", windowId=w, bounds={"windowState": "fullscreen"}))
 except Exception as e: print("maximize:", e)
 time.sleep(3)
 # Claude: the owner's key, given the way the app's own setup gives it (never shown on screen)
