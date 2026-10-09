@@ -58,3 +58,4 @@ jobs:
             out/raw.mp4
             out/captions.vtt
             out/timeline.json
+            out/say*.wav
