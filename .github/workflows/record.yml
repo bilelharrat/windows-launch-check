@@ -47,6 +47,7 @@ jobs:
         run: |
           $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter $env:IN_EXE | Select-Object -First 1
           $env:PATH = "$env:ChocolateyInstall\bin;$env:PATH"
+          (New-Object -ComObject Shell.Application).MinimizeAll(); Start-Sleep -Seconds 2
           python video/record.py $exe.FullName
       - uses: actions/upload-artifact@v4
         if: always()

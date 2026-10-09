@@ -52,13 +52,18 @@ for _ in range(240):
     time.sleep(1)
 if not page: print("the page never came"); rec.communicate(b"q"); sys.exit(1)
 note("ready", "the page is up")
-# the whole screen for the window
+# the whole screen for the window (the browser's own command; events can arrive before its answer)
+def browser_call(ws, n, method, **params):
+    ws.send(json.dumps({"id": n, "method": method, "params": params}))
+    while True:
+        m = json.loads(ws.recv())
+        if m.get("id") == n: return m
 try:
     ver = json.load(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/version", timeout=3))
     br = websocket.create_connection(ver["webSocketDebuggerUrl"], timeout=10, suppress_origin=True)
     tid = [t for t in targets() if t.get("type") == "page" and t.get("url", "").startswith("http://127.0.0.1")][0]["id"]
-    br.send(json.dumps({"id": 1, "method": "Browser.getWindowForTarget", "params": {"targetId": tid}})); w = json.loads(br.recv())["result"]["windowId"]
-    br.send(json.dumps({"id": 2, "method": "Browser.setWindowBounds", "params": {"windowId": w, "bounds": {"windowState": "maximized"}}})); br.recv()
+    w = browser_call(br, 1, "Browser.getWindowForTarget", targetId=tid)["result"]["windowId"]
+    print("maximize:", browser_call(br, 2, "Browser.setWindowBounds", windowId=w, bounds={"windowState": "maximized"}))
 except Exception as e: print("maximize:", e)
 time.sleep(3)
 # Claude: the owner's key, given the way the app's own setup gives it (never shown on screen)
