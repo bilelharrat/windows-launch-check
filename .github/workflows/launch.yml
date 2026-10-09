@@ -1,0 +1,44 @@
+name: Launch check
+
+# Installs one of the Windows installers published for askeden.com on a clean Windows machine, starts it as the
+# Start menu would, and keeps what a person would see (a screenshot, the window and page, the log files).
+# Started by hand:  gh workflow run launch.yml -f url=<installer address> -f exe=<program file name>
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "The installer's address"
+        required: true
+      exe:
+        description: "The installed program's file name"
+        required: true
+      expect:
+        description: "Text the window's title should have once the page is up"
+        default: ""
+      account:
+        description: "runner, or the name of a new account to install and run as (names with a space or an accent try those paths)"
+        default: runner
+      defender:
+        description: "default, or on (real-time scanning switched on)"
+        default: default
+      wait:
+        description: "Seconds to wait for the window"
+        default: "240"
+
+permissions:
+  contents: read
+
+jobs:
+  launch:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install, start and watch
+        shell: powershell
+        run: ./check.ps1 -Url "${{ inputs.url }}" -ExeName "${{ inputs.exe }}" -Expect "${{ inputs.expect }}" -Account "${{ inputs.account }}" -Defender "${{ inputs.defender }}" -WaitSeconds ${{ inputs.wait }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launch-${{ github.run_id }}
+          path: out/*
