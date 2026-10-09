@@ -7,6 +7,9 @@ param(
   [string] $Expect = '',                                 # text the window's title should have once the page is up
   [string] $Account = 'runner',                          # runner (this account) | "Robert Parker" (a new account whose name has a space) | "José Pérez"
   [string] $Defender = 'default',                        # default | on (real-time scanning switched on)
+  [string] $Preinstall = '',                             # an earlier installer's address: installed first (the app of an upgrade)
+  [string] $PreinstallExe = '',                          # …and the program it installs, started and left running while the new installer runs
+  [string] $Probe = 'yes',                               # ask the page what mode it is in (yes | no)
   [int] $WaitSeconds = 240,
   [string] $Out = 'out'
 )
@@ -20,6 +23,49 @@ function Note($text) {
   $timeline.Add($line); Write-Host $line
 }
 function Save-Timeline { $timeline | Set-Content -Encoding UTF8 (Join-Path $Out 'timeline.txt') }
+
+# ── the windows on the screen, and what the page says about itself ──
+Add-Type @"
+using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text;
+public static class Wins {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  public static List<string> All() {
+    var list = new List<string>();
+    EnumWindows((h, l) => {
+      if (!IsWindowVisible(h)) return true;
+      var t = new StringBuilder(256); var c = new StringBuilder(256); uint pid;
+      GetWindowText(h, t, 256); GetClassName(h, c, 256); GetWindowThreadProcessId(h, out pid);
+      if (t.Length > 0) list.Add(h.ToInt64() + "|" + c + "|" + pid + "|" + t);
+      return true;
+    }, IntPtr.Zero);
+    return list;
+  }
+}
+"@
+function Get-Windows { [Wins]::All() | Sort-Object }
+function Invoke-Cdp($wsUrl, $expression) {
+  $ws = New-Object System.Net.WebSockets.ClientWebSocket
+  $cts = New-Object System.Threading.CancellationTokenSource 15000
+  try {
+    $ws.ConnectAsync([Uri]$wsUrl, $cts.Token).Wait()
+    $payload = @{ id = 1; method = 'Runtime.evaluate'; params = @{ expression = $expression; returnByValue = $true; awaitPromise = $true } } | ConvertTo-Json -Depth 5 -Compress
+    $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
+    $ws.SendAsync([ArraySegment[byte]]$bytes, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait()
+    $buffer = New-Object byte[] 65536
+    $text = ''
+    do {
+      $got = $ws.ReceiveAsync([ArraySegment[byte]]$buffer, $cts.Token).GetAwaiter().GetResult()
+      $text += [Text.Encoding]::UTF8.GetString($buffer, 0, $got.Count)
+    } until ($got.EndOfMessage)
+    return ($text | ConvertFrom-Json).result.result.value
+  } catch { return "ERROR: $($_.Exception.Message)" }
+  finally { try { $ws.Dispose() } catch {} }
+}
 
 # ── the machine ──
 $facts = @()
@@ -60,6 +106,23 @@ function Run-As($file, $arguments) {
 }
 $userHome = if ($credential) { "C:\Users\$Account" } else { $env:USERPROFILE }
 
+# ── an earlier version installed first (the upgrade a person does), and left running if asked ──
+if ($Preinstall -ne '') {
+  $earlier = Join-Path $work 'Earlier.exe'
+  curl.exe -L --fail --silent --show-error -o $earlier $Preinstall
+  $e = Run-As $earlier '/S'
+  Note "the earlier version is installed: exit $(if ($e.WaitForExit(600000)) { $e.ExitCode } else { 'still running' })"
+  Start-Sleep -Seconds 3
+  if ($PreinstallExe -ne '') {
+    $oldExe = Get-ChildItem (Join-Path $userHome 'AppData\Local\Programs') -Filter $PreinstallExe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '^(Uninstall|elevate)' } | Select-Object -First 1
+    if ($oldExe) {
+      $old = Run-As $oldExe.FullName ''
+      Start-Sleep -Seconds 25
+      Note "the earlier version is running ($($oldExe.FullName)): $(@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($oldExe.DirectoryName, [StringComparison]::OrdinalIgnoreCase) }).Count) of its processes"
+    } else { Note "the earlier program $PreinstallExe was not found" }
+  }
+}
+
 # ── download ──
 $setup = Join-Path $work 'Setup.exe'
 curl.exe -L --fail --silent --show-error -o $setup $Url
@@ -90,6 +153,7 @@ Get-ChildItem $userHome\Desktop, "$userHome\AppData\Roaming\Microsoft\Windows\St
 
 # ── start it, and watch ──
 $port = 9333
+$windowsBefore = @(Get-Windows)
 $started = Get-Date
 $app = Run-As $exe.FullName "--remote-debugging-port=$port"
 Note "started (pid $($app.Id))"
@@ -121,6 +185,21 @@ while ((Get-Date) -lt $deadline) {
 }
 Note ("verdict: " + $(if ($opened) { 'OPENED' } else { 'NOT OPEN' }))
 Start-Sleep -Seconds 3
+if ($opened -and $Probe -eq 'yes') {
+  try {
+    $target = (Invoke-RestMethod -Uri "http://127.0.0.1:$port/json" -TimeoutSec 5) | Where-Object { $_.type -eq 'page' -and $_.url -like 'http://127.0.0.1:*' } | Select-Object -First 1
+    $expression = "JSON.stringify({ title: document.title, edition: document.body.dataset.edition || '', sr: document.documentElement.dataset.sr || '', contrast: document.documentElement.dataset.contrast || '', background: getComputedStyle(document.body).backgroundColor, color: getComputedStyle(document.body).color, platform: navigator.platform, wordmark: (document.getElementById('wordmark') || {}).textContent || '', accessibility: (window.jarvisAccessibility && window.jarvisAccessibility.state) ? { effective: window.jarvisAccessibility.state().effective, edition: window.jarvisAccessibility.state().edition, colors: window.jarvisAccessibility.state().colors, textSize: window.jarvisAccessibility.state().textSize, detected: window.jarvisAccessibility.state().detected } : null, welcome: [...document.querySelectorAll('#sr-polite p')].map(p => p.textContent) })"
+    $said = Invoke-Cdp $target.webSocketDebuggerUrl $expression
+    $said | Set-Content -Encoding UTF8 (Join-Path $Out 'page-probe.json')
+    Note "the page says: $said"
+  } catch { Note "the page could not be asked: $($_.Exception.Message)" }
+}
+$windowsAfter = @(Get-Windows)
+$newWindows = @($windowsAfter | Where-Object { $windowsBefore -notcontains $_ })
+$newWindows | Set-Content -Encoding UTF8 (Join-Path $Out 'new-windows.txt')
+foreach ($w in $newWindows) { Note "a window that was not there before: $w" }
+$consoleWindows = @($newWindows | Where-Object { $_ -match '\|(ConsoleWindowClass|CASCADIA_HOSTING_WINDOW_CLASS)\|' })
+Note ("console windows the app opened: " + $consoleWindows.Count)
 
 # ── what is there to see ──
 $shot = Join-Path $Out 'screen.png'

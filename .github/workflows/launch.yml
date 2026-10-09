@@ -21,6 +21,15 @@ on:
       defender:
         description: "default, or on (real-time scanning switched on)"
         default: default
+      preinstall:
+        description: "An earlier installer's address, installed first (the upgrade a person does)"
+        default: ""
+      preinstall_exe:
+        description: "The program that earlier installer installs: it is started and left running while the new installer runs"
+        default: ""
+      probe:
+        description: "yes: ask the page what mode it is in"
+        default: "yes"
       wait:
         description: "Seconds to wait for the window"
         default: "240"
@@ -31,12 +40,22 @@ permissions:
 jobs:
   launch:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Install, start and watch
         shell: powershell
-        run: ./check.ps1 -Url "${{ inputs.url }}" -ExeName "${{ inputs.exe }}" -Expect "${{ inputs.expect }}" -Account "${{ inputs.account }}" -Defender "${{ inputs.defender }}" -WaitSeconds ${{ inputs.wait }}
+        env:
+          IN_URL: ${{ inputs.url }}
+          IN_EXE: ${{ inputs.exe }}
+          IN_EXPECT: ${{ inputs.expect }}
+          IN_ACCOUNT: ${{ inputs.account }}
+          IN_DEFENDER: ${{ inputs.defender }}
+          IN_PREINSTALL: ${{ inputs.preinstall }}
+          IN_PREINSTALL_EXE: ${{ inputs.preinstall_exe }}
+          IN_PROBE: ${{ inputs.probe }}
+          IN_WAIT: ${{ inputs.wait }}
+        run: ./check.ps1 -Url $env:IN_URL -ExeName $env:IN_EXE -Expect $env:IN_EXPECT -Account $env:IN_ACCOUNT -Defender $env:IN_DEFENDER -Preinstall $env:IN_PREINSTALL -PreinstallExe $env:IN_PREINSTALL_EXE -Probe $env:IN_PROBE -WaitSeconds ([int]$env:IN_WAIT)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
