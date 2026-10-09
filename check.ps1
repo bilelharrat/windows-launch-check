@@ -76,7 +76,7 @@ $done = $install.WaitForExit(600000)
 Note "installer finished: exit $($install.ExitCode), waited out: $done"
 Start-Sleep -Seconds 3
 $programs = Join-Path $userHome 'AppData\Local\Programs'
-$exe = Get-ChildItem $programs -Filter $ExeName -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+$exe = Get-ChildItem $programs -Filter $ExeName -Recurse -Depth 2 -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '^(Uninstall|elevate)' } | Select-Object -First 1
 if (-not $exe) {
   Note "the program $ExeName was not found under $programs"
   Get-ChildItem $programs -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 40 FullName | Out-String | Add-Content (Join-Path $Out 'timeline.txt')
