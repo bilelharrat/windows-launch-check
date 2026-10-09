@@ -6,6 +6,7 @@ out/timeline.json."""
 import json, os, subprocess, sys, time, urllib.request
 from pathlib import Path
 import websocket
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 sys.path.insert(0, str(Path(__file__).parent))
 from mailserver import TestMail, make_raw, when
