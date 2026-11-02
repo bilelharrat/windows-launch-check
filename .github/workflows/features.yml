@@ -1,0 +1,51 @@
+name: Feature check
+
+# Installs an installer on a clean Windows machine and runs real/*.py with the app's own Python.
+# gh workflow run features.yml -f url=<installer address> -f exe=<program file name>
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "The installer's address"
+        required: true
+      exe:
+        description: "The installed program's file name"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  features:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and run
+        shell: powershell
+        env:
+          IN_URL: ${{ inputs.url }}
+          IN_EXE: ${{ inputs.exe }}
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Invoke-WebRequest -Uri $env:IN_URL -OutFile setup.exe -UseBasicParsing
+          $p = Start-Process .\setup.exe -ArgumentList '/S' -Wait -PassThru
+          "installer exit: $($p.ExitCode)" | Tee-Object out\result.txt
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Filter $env:IN_EXE -Recurse -Depth 2 | Select-Object -First 1
+          $py = Get-ChildItem (Split-Path $exe.FullName) -Filter python.exe -Recurse | Where-Object { $_.FullName -match 'backend' } | Select-Object -First 1
+          "python: $($py.FullName)" | Tee-Object -Append out\result.txt
+          $bad = 0
+          foreach ($s in 'win_real_engine','win_real_app') {
+            "--- $s" | Tee-Object -Append out\result.txt
+            $text = & $py.FullName -X utf8 "real\$s.py" 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            $text | Tee-Object -Append out\result.txt
+            "exit $code" | Tee-Object -Append out\result.txt
+            if ($code -ne 0) { $bad = 1 }
+          }
+          exit $bad
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: features
+          path: out/*
